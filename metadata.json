@@ -1,0 +1,6 @@
+{
+  "name": "COSMORA — Space Mission Simulator",
+  "description": "Interactive 3D space launch and orbital flight simulator — pilot multi-stage rockets out of Earth's atmosphere with directional exhaust plumes, stage separation, and orbital escape physics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

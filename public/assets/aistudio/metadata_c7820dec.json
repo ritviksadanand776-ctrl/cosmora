@@ -1,0 +1,6 @@
+{
+  "name": "COSMORA — Space Mission Simulator",
+  "description": "Interactive 3D multi-planet space exploration simulator — design launch vehicles, launch into Earth orbit, fly interplanetary transfers, land across 8 worlds, deploy rovers, and pilot atmospheric probes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
