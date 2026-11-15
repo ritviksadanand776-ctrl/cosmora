@@ -5,12 +5,14 @@ import { ProceduralTextures } from './textures';
 function getFoilColor(finish: LanderFinish): number {
   if (finish === 'silver') return 0xdbe4ee;
   if (finish === 'copper') return 0xd97746;
+  if (finish === 'obsidian') return 0x293548;
   return 0xd49a1a;
 }
 
 export function getPlumeColors(style: PlumeStyle): { outer: number; inner: number } {
   if (style === 'cryo') return { outer: 0x38bdf8, inner: 0xe0f2fe };
   if (style === 'violet') return { outer: 0xa855f7, inner: 0xf3e8ff };
+  if (style === 'emerald') return { outer: 0x10b981, inner: 0xd1fae5 };
   return { outer: 0xf97316, inner: 0xfffbeb };
 }
 
@@ -167,8 +169,8 @@ export class LanderVehicle {
 
     const plumeColors = getPlumeColors(config.plumeStyle);
     const outerGeo = new THREE.ConeGeometry(0.85, 6.2, 18, 1, true);
-    outerGeo.translate(0, -3.1, 0);
     outerGeo.rotateX(Math.PI);
+    outerGeo.translate(0, -3.1, 0);
     this.flameOuterMat = new THREE.MeshBasicMaterial({
       color: plumeColors.outer,
       transparent: true,
@@ -180,8 +182,8 @@ export class LanderVehicle {
     const outerFlame = new THREE.Mesh(outerGeo, this.flameOuterMat);
 
     const innerGeo = new THREE.ConeGeometry(0.46, 4.0, 16, 1, true);
-    innerGeo.translate(0, -2.0, 0);
     innerGeo.rotateX(Math.PI);
+    innerGeo.translate(0, -2.0, 0);
     this.flameInnerMat = new THREE.MeshBasicMaterial({
       color: plumeColors.inner,
       transparent: true,

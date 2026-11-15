@@ -1,15 +1,19 @@
 import React from 'react';
-import { Play, Power, RotateCcw, Settings, X } from 'lucide-react';
+import { Coins, Play, Power, RotateCcw, Settings, ShoppingBag, X } from 'lucide-react';
 import { GameSettings } from '../types/mission';
 
 interface TitleScreenProps {
+  credits: number;
   onStart: () => void;
+  onOpenShop: () => void;
   onOpenSettings: () => void;
   onQuit: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
+  credits,
   onStart,
+  onOpenShop,
   onOpenSettings,
   onQuit,
 }) => {
@@ -19,12 +23,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <div className="font-display text-sm font-bold tracking-[0.22em] text-slate-300">
           COSMORA
         </div>
-        <div className="text-xs font-mono-tabular text-slate-400">
-          Orbital Mechanics · NASA Planetary Surfaces
+        <div className="flex items-center gap-3">
+          <div className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#070d1a]/88 border border-amber-500/40 text-xs font-mono-tabular font-bold text-amber-300">
+            <Coins className="w-3.5 h-3.5" />
+            <span>${credits.toLocaleString()}</span>
+          </div>
+          <div className="hidden sm:block text-xs font-mono-tabular text-slate-400">
+            Orbital Mechanics · NASA Planetary Surfaces
+          </div>
         </div>
       </div>
 
-      <div className="pointer-events-auto max-w-lg bg-[#070d1a]/88 border border-slate-700/65 rounded-xl p-7 shadow-2xl">
+      <div className="pointer-events-auto max-w-xl bg-[#070d1a]/88 border border-slate-700/65 rounded-xl p-7 shadow-2xl">
         <p className="text-xs font-mono-tabular tracking-widest uppercase text-amber-400">
           Space Mission Simulator
         </p>
@@ -33,11 +43,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </h1>
         <p className="mt-3 text-sm text-slate-300 leading-relaxed">
           Assemble your custom launch vehicle in the hangar, roll out to the pad, climb into Earth
-          orbit, fire your interplanetary transfer burn, land on NASA-mapped terrain, and drive a
-          6-wheeled rover across the surface.
+          orbit, fire your interplanetary transfer burn, land inside the safe zone on NASA-mapped
+          terrain, and hunt rare samples with your 6-wheeled rover.
         </p>
 
-        <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={onStart}
@@ -45,6 +55,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           >
             <Play className="w-4 h-4 fill-current" />
             <span>Start</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenShop}
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-sky-950/90 hover:bg-sky-900 border border-sky-500/50 text-sky-200 text-sm font-medium transition-colors cursor-pointer"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>Parts Shop</span>
           </button>
 
           <button
@@ -68,7 +87,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       <div className="text-xs text-slate-400 font-mono-tabular">
-        6 Worlds · Custom Spacecraft Hangar · Crawler Rollout · Powered Landing · 6-Wheel Rover
+        6 Worlds · Spacecraft Shop · Free Launch Camera · Powered Safe-Zone Landing · Rare Sample Search
       </div>
     </div>
   );

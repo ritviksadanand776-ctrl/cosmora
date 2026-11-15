@@ -84,9 +84,9 @@ export class SpaceportEnvironment {
     scene.add(this.skyDome);
 
     // =========================================================
-    // 2. DEEP SPACE STARFIELD
+    // 2. DEEP SPACE STARFIELD (Crisp, luminous, balanced)
     // =========================================================
-    const starCount = 2600;
+    const starCount = 3200;
     const starPos = new Float32Array(starCount * 3);
     const starColors = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
@@ -97,19 +97,20 @@ export class SpaceportEnvironment {
       starPos[i * 3 + 1] = r * Math.cos(phi);
       starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
 
+      const bright = 0.78 + Math.random() * 0.22;
       const tint = Math.random();
-      if (tint < 0.2) {
-        starColors[i * 3] = 0.75;
-        starColors[i * 3 + 1] = 0.88;
-        starColors[i * 3 + 2] = 1.0;
-      } else if (tint < 0.35) {
-        starColors[i * 3] = 1.0;
-        starColors[i * 3 + 1] = 0.9;
-        starColors[i * 3 + 2] = 0.74;
+      if (tint < 0.22) {
+        starColors[i * 3] = 0.8 * bright;
+        starColors[i * 3 + 1] = 0.92 * bright;
+        starColors[i * 3 + 2] = 1.0 * bright;
+      } else if (tint < 0.38) {
+        starColors[i * 3] = 1.0 * bright;
+        starColors[i * 3 + 1] = 0.92 * bright;
+        starColors[i * 3 + 2] = 0.76 * bright;
       } else {
-        starColors[i * 3] = 0.98;
-        starColors[i * 3 + 1] = 0.98;
-        starColors[i * 3 + 2] = 1.0;
+        starColors[i * 3] = 1.0 * bright;
+        starColors[i * 3 + 1] = 1.0 * bright;
+        starColors[i * 3 + 2] = 1.0 * bright;
       }
     }
     const starGeo = new THREE.BufferGeometry();
@@ -117,7 +118,7 @@ export class SpaceportEnvironment {
     starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
 
     this.starsMaterial = new THREE.PointsMaterial({
-      size: 28,
+      size: 54,
       vertexColors: true,
       transparent: true,
       opacity: 0,
@@ -150,7 +151,7 @@ export class SpaceportEnvironment {
     });
     const oceanPlane = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), oceanMat);
     oceanPlane.rotation.x = -Math.PI / 2;
-    oceanPlane.position.set(2200, -0.45, 0);
+    oceanPlane.position.set(2200, -1.8, 0);
     this.localGroundGroup.add(oceanPlane);
 
     // Paved Crawlerway Road connecting Warehouse (-115, 0) to Launch Pad (0, 0)
@@ -577,7 +578,7 @@ export class SpaceportEnvironment {
     );
     this.skyMaterial.uniforms.uSpaceBlend.value = spaceBlend;
 
-    this.starsMaterial.opacity = THREE.MathUtils.smoothstep(altitudeKm, 20, 75) * 0.95;
+    this.starsMaterial.opacity = THREE.MathUtils.smoothstep(altitudeKm, 16, 68) * 1.0;
 
     if (scene.fog instanceof THREE.FogExp2) {
       scene.fog.color.copy(horizon).lerp(new THREE.Color(0x020611), spaceBlend);
@@ -615,7 +616,7 @@ export class SpaceportEnvironment {
     this.skyDome.position.copy(cameraPos);
     this.stars.position.copy(cameraPos);
     this.skyMaterial.uniforms.uSpaceBlend.value = 1.0;
-    this.starsMaterial.opacity = 0.96;
+    this.starsMaterial.opacity = 1.0;
     this.localGroundGroup.visible = false;
     this.cloudLayer.visible = false;
     if (scene.fog instanceof THREE.FogExp2) {
@@ -636,11 +637,11 @@ export class SpaceportEnvironment {
     this.skyMaterial.uniforms.uSpaceBlend.value = isAirless ? 0.98 : 0.0;
     (this.skyMaterial.uniforms.uZenithColor.value as THREE.Color).set(d.skyHex);
     (this.skyMaterial.uniforms.uHorizonColor.value as THREE.Color).set(d.fogHex);
-    this.starsMaterial.opacity = isAirless ? 0.92 : 0.04;
+    this.starsMaterial.opacity = isAirless ? 0.98 : 0.06;
 
     if (scene.fog instanceof THREE.FogExp2) {
       scene.fog.color.set(d.fogHex);
-      scene.fog.density = isAirless ? 0.0003 : destId === 'venus' || destId === 'titan' ? 0.0055 : 0.0024;
+      scene.fog.density = isAirless ? 0.00055 : destId === 'venus' || destId === 'titan' ? 0.0032 : 0.0016;
     }
   }
 }

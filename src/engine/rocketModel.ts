@@ -61,8 +61,8 @@ function createFlameAssembly(
   const group = new THREE.Group();
 
   const outerGeo = new THREE.ConeGeometry(nozzleRadius * 1.45, length, 20, 1, true);
-  outerGeo.translate(0, -length * 0.5, 0);
   outerGeo.rotateX(Math.PI);
+  outerGeo.translate(0, -length * 0.5, 0);
   const outerMat = new THREE.MeshBasicMaterial({
     color: outerColorHex,
     transparent: true,
@@ -75,8 +75,8 @@ function createFlameAssembly(
   group.add(outerCone);
 
   const innerGeo = new THREE.ConeGeometry(nozzleRadius * 0.78, length * 0.62, 16, 1, true);
-  innerGeo.translate(0, -length * 0.31, 0);
   innerGeo.rotateX(Math.PI);
+  innerGeo.translate(0, -length * 0.31, 0);
   const innerMat = new THREE.MeshBasicMaterial({
     color: innerColorHex,
     transparent: true,
@@ -297,18 +297,20 @@ export class RocketVehicle {
     this.root.add(this.coreStage);
 
     // =========================================================
-    // 2. SOLID ROCKET BOOSTERS (4 slots: -X, +X, +Z, -Z)
+    // 2. SOLID ROCKET BOOSTERS (6 slots supporting none / twin / quad / heavy6)
     // =========================================================
-    const boosterPositions: [number, number, number][] = [
-      [-2.42, 0, 0],
-      [2.42, 0, 0],
-      [0, 0, 2.42],
-      [0, 0, -2.42],
+    const boosterConfigs: { x: number; y: number; z: number; yaw: number }[] = [
+      { x: -2.42, y: 0, z: 0, yaw: 0 },
+      { x: 2.42, y: 0, z: 0, yaw: Math.PI },
+      { x: 0, y: 0, z: 2.42, yaw: Math.PI * 0.5 },
+      { x: 0, y: 0, z: -2.42, yaw: -Math.PI * 0.5 },
+      { x: 1.72, y: 0, z: 1.72, yaw: Math.PI * 0.75 },
+      { x: -1.72, y: 0, z: -1.72, yaw: -Math.PI * 0.25 },
     ];
 
-    boosterPositions.forEach(([bx, by, bz], bIdx) => {
+    boosterConfigs.forEach(({ x: bx, y: by, z: bz, yaw }, bIdx) => {
       const bGroup = new THREE.Group();
-      const srbR = 0.88;
+      const srbR = 0.85;
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(srbR, srbR, 10.6, 28),
         this.hullMat
@@ -320,7 +322,7 @@ export class RocketVehicle {
 
       [2.7, 5.8, 8.9, 11.7].forEach((ringY, idx) => {
         const ring = new THREE.Mesh(
-          new THREE.CylinderGeometry(srbR * 1.03, srbR * 1.03, 0.28, 28),
+          new THREE.CylinderGeometry(srbR * 1.035, srbR * 1.035, 0.28, 28),
           idx === 2 ? this.accentMat : darkCarbonMat
         );
         ring.position.y = ringY;
@@ -346,14 +348,17 @@ export class RocketVehicle {
       bTip.position.y = 15.38;
       bGroup.add(bTip);
 
-      // Attach struts pointing inward to core
+      // Attach struts pointing inward toward core (yaw-aligned)
       [3.6, 11.0].forEach((strutY) => {
         const strut = new THREE.Mesh(
-          new THREE.BoxGeometry(bx !== 0 ? 0.85 : 0.24, 0.22, bz !== 0 ? 0.85 : 0.24),
+          new THREE.BoxGeometry(0.9, 0.22, 0.24),
           brushedTitaniumMat
         );
-        strut.position.set(bx !== 0 ? -Math.sign(bx) * 0.95 : 0, strutY, bz !== 0 ? -Math.sign(bz) * 0.95 : 0);
-        bGroup.add(strut);
+        strut.position.set(0.95, strutY, 0);
+        const strutPivot = new THREE.Group();
+        strutPivot.rotation.y = yaw;
+        strutPivot.add(strut);
+        bGroup.add(strutPivot);
       });
 
       const skirt = new THREE.Mesh(
@@ -363,12 +368,12 @@ export class RocketVehicle {
       skirt.position.y = 1.55;
       bGroup.add(skirt);
 
-      const nozzle = createNozzleBell(0.46, 0.78, 1.35, brushedTitaniumMat);
+      const nozzle = createNozzleBell(0.45, 0.76, 1.35, brushedTitaniumMat);
       nozzle.position.set(0, 1.42, 0);
       bGroup.add(nozzle);
       this.srbNozzles.push(nozzle);
 
-      const flame = createFlameAssembly(0.75, 12.5, 0xf97316, 0xffffff);
+      const flame = createFlameAssembly(0.74, 12.5, 0xf97316, 0xffffff);
       flame.group.position.set(0, -1.3, 0);
       nozzle.add(flame.group);
       this.srbFlames.push(flame);
@@ -376,7 +381,7 @@ export class RocketVehicle {
       const marker = new THREE.Object3D();
       marker.position.set(0, -1.35, 0);
       nozzle.add(marker);
-      this.nozzleMarkers.push({ obj: marker, stage: 0, boosterIdx: bIdx, radius: 0.78 });
+      this.nozzleMarkers.push({ obj: marker, stage: 0, boosterIdx: bIdx, radius: 0.76 });
 
       bGroup.position.set(bx, by, bz);
       this.boosters.push(bGroup);
@@ -471,17 +476,17 @@ export class RocketVehicle {
     feedHorn.position.y = 21.65;
     this.spacecraft.add(feedHorn);
 
-    const wingGeo = new THREE.BoxGeometry(2.4, 0.06, 0.95);
+    const wingGeo = new THREE.BoxGeometry(2.0, 0.05, 0.76);
     const leftPanel = new THREE.Mesh(wingGeo, solarMat);
-    leftPanel.position.x = -1.25;
+    leftPanel.position.x = -1.05;
     this.solarWingLeft.add(leftPanel);
-    this.solarWingLeft.position.set(-0.78, 20.35, 0);
+    this.solarWingLeft.position.set(-0.72, 20.35, 0);
     this.solarWingLeft.rotation.z = Math.PI * 0.48;
 
     const rightPanel = new THREE.Mesh(wingGeo, solarMat);
-    rightPanel.position.x = 1.25;
+    rightPanel.position.x = 1.05;
     this.solarWingRight.add(rightPanel);
-    this.solarWingRight.position.set(0.78, 20.35, 0);
+    this.solarWingRight.position.set(0.72, 20.35, 0);
     this.solarWingRight.rotation.z = -Math.PI * 0.48;
 
     this.spacecraft.add(this.solarWingLeft);
@@ -584,18 +589,45 @@ export class RocketVehicle {
     this.accentMat.color.set(config.accentColor);
 
     const foilHex =
-      config.landerFinish === 'silver' ? 0xdbe4ee : config.landerFinish === 'copper' ? 0xd97746 : 0xd49a1a;
+      config.landerFinish === 'silver'
+        ? 0xdbe4ee
+        : config.landerFinish === 'copper'
+          ? 0xd97746
+          : config.landerFinish === 'obsidian'
+            ? 0x293548
+            : 0xd49a1a;
     this.foilMat.color.setHex(foilHex);
 
-    // Booster visibility according to chosen layout
-    this.boosters[0].visible = config.boosterStyle === 'twin' || config.boosterStyle === 'quad';
-    this.boosters[1].visible = config.boosterStyle === 'twin' || config.boosterStyle === 'quad';
-    this.boosters[2].visible = config.boosterStyle === 'quad';
-    this.boosters[3].visible = config.boosterStyle === 'quad';
+    // Booster visibility according to chosen layout (twin = 2, quad = 4, heavy6 = 6)
+    const count =
+      config.boosterStyle === 'heavy6'
+        ? 6
+        : config.boosterStyle === 'quad'
+          ? 4
+          : config.boosterStyle === 'twin'
+            ? 2
+            : 0;
+    for (let i = 0; i < this.boosters.length; i++) {
+      this.boosters[i].visible = i < count;
+    }
 
     // Fairing silhouette scale (pivoted at base y = 19.1 so always flush!)
-    const fairingScaleXZ = config.fairingStyle === 'hammerhead' ? 1.22 : config.fairingStyle === 'needle' ? 0.88 : 1.0;
-    const fairingScaleY = config.fairingStyle === 'needle' ? 1.22 : config.fairingStyle === 'hammerhead' ? 0.92 : 1.0;
+    const fairingScaleXZ =
+      config.fairingStyle === 'hammerhead'
+        ? 1.22
+        : config.fairingStyle === 'shield'
+          ? 1.3
+          : config.fairingStyle === 'needle'
+            ? 0.9
+            : 1.0;
+    const fairingScaleY =
+      config.fairingStyle === 'needle'
+        ? 1.22
+        : config.fairingStyle === 'hammerhead'
+          ? 0.92
+          : config.fairingStyle === 'shield'
+            ? 0.85
+            : 1.0;
     this.fairingLeft.scale.set(fairingScaleXZ, fairingScaleY, fairingScaleXZ);
     this.fairingRight.scale.set(fairingScaleXZ, fairingScaleY, fairingScaleXZ);
 
@@ -793,6 +825,8 @@ export class RocketVehicle {
       spawnDebris(this.boosters[1], 14, 0, -8);
       spawnDebris(this.boosters[2], 0, 14, -8);
       spawnDebris(this.boosters[3], 0, -14, -8);
+      spawnDebris(this.boosters[4], 10, 10, -8);
+      spawnDebris(this.boosters[5], -10, -10, -8);
     } else if (separatedStageIndex === 1) {
       spawnDebris(this.coreStage, (Math.random() - 0.5) * 4, 0, -18);
     }
@@ -840,10 +874,9 @@ export class RocketVehicle {
     if (this.currentConfig) {
       this.applySpacecraftConfig(this.currentConfig);
     } else {
-      this.boosters[0].visible = true;
-      this.boosters[1].visible = true;
-      this.boosters[2].visible = false;
-      this.boosters[3].visible = false;
+      for (let i = 0; i < this.boosters.length; i++) {
+        this.boosters[i].visible = i < 2;
+      }
     }
 
     for (const d of this.debrisList) {

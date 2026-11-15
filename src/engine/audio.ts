@@ -195,6 +195,65 @@ export class RocketAudioEngine {
     });
   }
 
+  public playExplosion(): void {
+    this.resume();
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+
+    // Deep sub-bass impact thump
+    const osc = this.ctx.createOscillator();
+    const oGain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(95, now);
+    osc.frequency.exponentialRampToValueAtTime(22, now + 0.85);
+    oGain.gain.setValueAtTime(0.65, now);
+    oGain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    osc.connect(oGain);
+    oGain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.95);
+
+    // Broadband fiery blast crackle
+    const len = Math.floor(this.ctx.sampleRate * 1.1);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.34));
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1400, now);
+    lp.frequency.exponentialRampToValueAtTime(160, now + 1.0);
+    const nGain = this.ctx.createGain();
+    nGain.gain.value = 0.75;
+    src.connect(lp);
+    lp.connect(nGain);
+    nGain.connect(this.masterGain);
+    src.start(now);
+  }
+
+  public playPurchase(): void {
+    this.resume();
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+    [587.33, 880].forEach((freq, idx) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      const t = now + idx * 0.08;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.16, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.28);
+    });
+  }
+
   public dispose(): void {
     try {
       this.noiseSource?.stop();

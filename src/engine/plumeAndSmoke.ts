@@ -182,22 +182,23 @@ export class ExhaustSmokeSystem {
         const spreadAngle = (Math.random() - 0.5) * 0.24;
         const spreadAngleB = (Math.random() - 0.5) * 0.24;
 
-        // Strong exhaust ejection speed opposite to rocket nose direction!
-        const exhaustSpeed = (34 + throttle * 46) * (0.85 + Math.random() * 0.35);
+        // Strong exhaust ejection speed opposite to rocket nose direction (-forward)!
+        const speedMag = rocketVelWorld.length();
+        const exhaustSpeed = (58 + throttle * 52 + speedMag * 0.22) * (0.85 + Math.random() * 0.35);
 
-        // Smoke inherits partial rocket velocity + fast directional exhaust velocity
+        // Smoke & flare always blast strictly opposite to the rocket's orientation
         const vx =
-          rocketVelWorld.x * 0.25 +
+          rocketVelWorld.x * 0.12 +
           dir.x * exhaustSpeed +
           this._perpA.x * spreadAngle * exhaustSpeed +
           this._perpB.x * spreadAngleB * exhaustSpeed;
         const vy =
-          rocketVelWorld.y * 0.25 +
+          rocketVelWorld.y * 0.12 +
           dir.y * exhaustSpeed +
           this._perpA.y * spreadAngle * exhaustSpeed +
           this._perpB.y * spreadAngleB * exhaustSpeed;
         const vz =
-          rocketVelWorld.z * 0.25 +
+          rocketVelWorld.z * 0.12 +
           dir.z * exhaustSpeed +
           this._perpA.z * spreadAngle * exhaustSpeed +
           this._perpB.z * spreadAngleB * exhaustSpeed;
@@ -307,6 +308,45 @@ export class ExhaustSmokeSystem {
       this.alphasAttr[i] = fadeIn * fadeOut * baseAlpha;
     }
 
+    (this.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.attributes.aAlpha as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.attributes.aColor as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.attributes.aRotation as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  public spawnExplosion(worldPos: THREE.Vector3): void {
+    // Spawn 90 fiery embers + dark blast smoke radiating outward!
+    for (let i = 0; i < 90; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.65;
+      const speed = 8 + Math.random() * 26;
+      const vx = Math.sin(phi) * Math.cos(theta) * speed;
+      const vy = Math.cos(phi) * speed * 1.15 + 4;
+      const vz = Math.sin(phi) * Math.sin(theta) * speed;
+      const isFire = i < 55;
+      const startSize = isFire ? 2.8 + Math.random() * 2.2 : 4.2 + Math.random() * 3.0;
+      const endSize = startSize * (isFire ? 2.4 : 4.2);
+      const maxAge = isFire ? 0.6 + Math.random() * 0.65 : 1.6 + Math.random() * 1.4;
+      const r = isFire ? 1.0 : 0.24;
+      const g = isFire ? 0.35 + Math.random() * 0.45 : 0.22;
+      const b = isFire ? 0.08 : 0.2;
+      this.spawnParticle(
+        worldPos.x + (Math.random() - 0.5) * 1.2,
+        worldPos.y + 0.8 + Math.random() * 1.2,
+        worldPos.z + (Math.random() - 0.5) * 1.2,
+        vx,
+        vy,
+        vz,
+        startSize,
+        endSize,
+        maxAge,
+        r,
+        g,
+        b,
+        isFire
+      );
+    }
     (this.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.attributes.aAlpha as THREE.BufferAttribute).needsUpdate = true;

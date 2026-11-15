@@ -1,21 +1,27 @@
 import React, { useState } from 'react';
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Coins,
+  Compass,
   FastForward,
   Flame,
   Home,
   Layers,
   Microscope,
+  Navigation,
   Pause,
   Play,
   Rocket,
   RotateCcw,
   Settings,
+  ShoppingBag,
+  Sparkles,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -28,6 +34,7 @@ import {
   GameScreen,
   GameSettings,
   LandingTelemetry,
+  MissionFailureState,
   RolloutTelemetry,
   RoverTelemetry,
   SpacecraftConfig,
@@ -40,6 +47,9 @@ interface FlightHUDProps {
   spacecraftConfig: SpacecraftConfig;
   settings: GameSettings;
   cameraMode: CameraMode;
+  credits: number;
+  rewardBanner: string | null;
+  missionFailure: MissionFailureState | null;
   flightTelemetry: FlightTelemetry;
   rolloutTelemetry: RolloutTelemetry;
   transitTelemetry: TransitTelemetry;
@@ -47,9 +57,12 @@ interface FlightHUDProps {
   roverTelemetry: RoverTelemetry;
   onCameraModeChange: (mode: CameraMode) => void;
   onOpenSettings: () => void;
+  onOpenShop: () => void;
   onToggleMute: () => void;
   onToggleAutoLand: () => void;
   onReturnLevels: () => void;
+  onRetryMission: () => void;
+  onMainMenu: () => void;
   onSkipRollout: () => void;
   onLaunch: () => void;
   onSeparateStage: () => void;
@@ -77,6 +90,9 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
   spacecraftConfig,
   settings,
   cameraMode,
+  credits,
+  rewardBanner,
+  missionFailure,
   flightTelemetry,
   rolloutTelemetry,
   transitTelemetry,
@@ -84,9 +100,12 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
   roverTelemetry,
   onCameraModeChange,
   onOpenSettings,
+  onOpenShop,
   onToggleMute,
   onToggleAutoLand,
   onReturnLevels,
+  onRetryMission,
+  onMainMenu,
   onSkipRollout,
   onLaunch,
   onSeparateStage,
@@ -162,11 +181,16 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
                 </span>
               </>
             )}
+            <span className="text-slate-600" aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1 font-mono-tabular font-bold text-amber-300 whitespace-nowrap">
+              <Coins className="w-3 h-3" />
+              ${credits.toLocaleString()}
+            </span>
             {screen === 'rover' && (
               <>
                 <span className="text-slate-600" aria-hidden="true">·</span>
                 <span className="font-mono-tabular text-emerald-300 whitespace-nowrap">
-                  Samples {roverTelemetry.samplesCollected.length} / {dest.samples.length}
+                  Samples {roverTelemetry.samplesCollected.length} / {dest.samples.length + 1}
                 </span>
               </>
             )}
@@ -195,6 +219,16 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
               {settings.autoLandAssist ? 'Auto-Land: On' : 'Auto-Land: Manual'}
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={onOpenShop}
+            title="Spacecraft Parts Shop"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#070d1a]/92 border border-sky-500/40 text-xs font-medium text-sky-200 hover:border-sky-400 transition-colors cursor-pointer"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Shop</span>
+          </button>
 
           <button
             type="button"
@@ -297,21 +331,81 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
         </div>
       )}
 
-      {/* ROVER NEARBY SCIENCE SAMPLE PROMPT */}
-      {screen === 'rover' && roverTelemetry.nearbySample && (
-        <div className="pointer-events-auto self-center mb-2 bg-[#070d1a]/95 border border-emerald-400/70 rounded-xl px-5 py-3 shadow-2xl flex flex-wrap items-center gap-4">
+      {/* REWARD / UNLOCK TOAST BANNER */}
+      {rewardBanner && !missionFailure && (
+        <div className="pointer-events-none self-center bg-[#070d1a]/95 border border-amber-400/75 rounded-lg px-4 py-2 shadow-xl flex items-center gap-2 text-xs font-semibold text-amber-200">
+          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{rewardBanner}</span>
+        </div>
+      )}
+
+      {/* MISSION UNSUCCESSFUL MODAL (Landing Hazard/Crash or Rover Rock Collision) */}
+      {missionFailure && (
+        <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md bg-[#090d18] border border-red-500/70 rounded-xl p-6 shadow-2xl text-center">
+            <div className="mx-auto w-12 h-12 rounded-full bg-red-500/20 border border-red-400/60 flex items-center justify-center text-red-400">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div className="mt-3 text-xs font-mono-tabular uppercase tracking-widest text-red-400 font-bold">
+              Mission Unsuccessful
+            </div>
+            <h2 className="mt-1 font-display text-2xl font-bold text-white">
+              {missionFailure.title}
+            </h2>
+            <p className="mt-2.5 text-sm text-slate-300 leading-relaxed">
+              {missionFailure.reason}
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={onRetryMission}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-display font-bold text-sm transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Retry</span>
+              </button>
+              <button
+                type="button"
+                onClick={onMainMenu}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-100 font-display font-bold text-sm transition-colors cursor-pointer"
+              >
+                <Home className="w-4 h-4" />
+                <span>Main Menu</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROVER NEARBY SCIENCE SAMPLE / RARE RELIC PROMPT */}
+      {screen === 'rover' && !missionFailure && roverTelemetry.nearbySample && (
+        <div
+          className={`pointer-events-auto self-center mb-2 bg-[#070d1a]/95 rounded-xl px-5 py-3 shadow-2xl flex flex-wrap items-center gap-4 border ${
+            roverTelemetry.nearbySample.isRare ? 'border-purple-400/80' : 'border-emerald-400/70'
+          }`}
+        >
           <div>
-            <div className="text-[10px] font-mono-tabular uppercase tracking-wider text-emerald-300">
-              NASA Science Target In Range
+            <div
+              className={`text-[10px] font-mono-tabular uppercase tracking-wider ${
+                roverTelemetry.nearbySample.isRare ? 'text-purple-300' : 'text-emerald-300'
+              }`}
+            >
+              {roverTelemetry.nearbySample.isRare
+                ? 'RARE SAMPLE RELIC IN RANGE — UNLOCKS NEW PART!'
+                : 'NASA Science Target In Range'}
             </div>
             <div className="font-display text-base font-bold text-white">
-              {roverTelemetry.nearbySample.title}
+              {roverTelemetry.nearbySample.title} (+${roverTelemetry.nearbySample.creditReward})
             </div>
           </div>
           <button
             type="button"
             onClick={onCollectSample}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-display font-bold text-xs tracking-wide cursor-pointer"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-display font-bold text-xs tracking-wide cursor-pointer ${
+              roverTelemetry.nearbySample.isRare
+                ? 'bg-purple-500 hover:bg-purple-400 text-white'
+                : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+            }`}
           >
             <Microscope className="w-4 h-4" />
             <span>Scan Sample [E]</span>
@@ -654,20 +748,30 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
 
         {/* PLANETARY LANDING DOCK */}
         {screen === 'landing' && (
-          <div className="pointer-events-auto w-full max-w-[840px] bg-[#070d1a]/92 border border-slate-700/65 rounded-xl px-4 py-3 shadow-2xl">
+          <div className="pointer-events-auto w-full max-w-[880px] bg-[#070d1a]/92 border border-slate-700/65 rounded-xl px-4 py-3 shadow-2xl">
             <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-800/80 text-xs">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono-tabular font-semibold text-amber-400 shrink-0">
-                  LANDER
+                <span
+                  className={`font-mono-tabular font-semibold shrink-0 ${
+                    landingTelemetry.inSafeZone ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {landingTelemetry.inSafeZone ? 'SAFE ZONE' : 'DANGER ZONE'}
                 </span>
-                <span className="text-slate-300 truncate">{landingTelemetry.guidanceText}</span>
+                <span
+                  className={`truncate ${
+                    landingTelemetry.inSafeZone ? 'text-slate-300' : 'text-red-300 font-medium'
+                  }`}
+                >
+                  {landingTelemetry.guidanceText}
+                </span>
               </div>
               <span className="font-mono-tabular text-slate-400 shrink-0">
                 g = {dest.gravityMps2.toFixed(2)} m/s²
               </span>
             </div>
 
-            <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-5 gap-2">
               <div className="bg-slate-900/75 border border-slate-800 rounded-md px-2.5 py-1.5">
                 <div className="text-[10px] uppercase tracking-wider text-slate-400">
                   Radar Altitude
@@ -681,9 +785,25 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
                 <div className="text-[10px] uppercase tracking-wider text-slate-400">
                   Descent Rate
                 </div>
-                <div className="font-mono-tabular text-sm font-semibold text-sky-300">
+                <div
+                  className={`font-mono-tabular text-sm font-semibold ${
+                    Math.abs(landingTelemetry.verticalSpeed) > 10.5 ? 'text-red-400' : 'text-sky-300'
+                  }`}
+                >
                   {landingTelemetry.verticalSpeed.toFixed(1)}{' '}
                   <span className="text-[11px] text-slate-400 font-normal">m/s</span>
+                </div>
+              </div>
+              <div className="bg-slate-900/75 border border-slate-800 rounded-md px-2.5 py-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">
+                  Pad Zone Dist
+                </div>
+                <div
+                  className={`font-mono-tabular text-sm font-semibold ${
+                    landingTelemetry.inSafeZone ? 'text-emerald-300' : 'text-red-400'
+                  }`}
+                >
+                  {Math.round(landingTelemetry.distFromSafeCenter)} / {landingTelemetry.safeRadiusMeters}m
                 </div>
               </div>
               <div className="bg-slate-900/75 border border-slate-800 rounded-md px-2.5 py-1.5">
@@ -791,7 +911,7 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
 
         {/* ROVER SURFACE EXPLORATION DOCK */}
         {screen === 'rover' && (
-          <div className="pointer-events-auto w-full max-w-[920px] bg-[#070d1a]/92 border border-slate-700/65 rounded-xl px-4 py-3 shadow-2xl">
+          <div className="pointer-events-auto w-full max-w-[940px] bg-[#070d1a]/92 border border-slate-700/65 rounded-xl px-4 py-3 shadow-2xl">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-800/80 text-xs">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-mono-tabular font-semibold text-emerald-400 shrink-0">
@@ -800,20 +920,34 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
                 <span className="text-slate-300 truncate">
                   {roverTelemetry.lastScanMessage
                     ? roverTelemetry.lastScanMessage
-                    : allSamplesDone
-                      ? `All ${dest.samples.length} NASA science beacons scanned! Keep roaming ${dest.name}.`
-                      : `Drive with W/A/S/D or Arrows · Shift Boost · Space Low-G Hop · Follow glowing green beacons`}
+                    : allSamplesDone && roverTelemetry.rareFound
+                      ? `All samples & Rare Relic found on ${dest.name}!`
+                      : `Avoid solid rocks (collisions destroy rover!) · Follow Rare Radar or green beacons`}
                 </span>
               </div>
-              {allSamplesDone && (
-                <button
-                  type="button"
-                  onClick={onReturnLevels}
-                  className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-[11px] shrink-0 cursor-pointer"
-                >
-                  Choose Next Planet
-                </button>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {!roverTelemetry.rareFound && roverTelemetry.rareSampleDistanceM !== null && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-purple-950/60 border border-purple-400/50 text-purple-200 font-mono-tabular text-[11px]">
+                    <Compass className="w-3.5 h-3.5 text-purple-300" />
+                    <span>Rare Relic: {roverTelemetry.rareSampleDistanceM} m</span>
+                    {roverTelemetry.rareSampleBearingDeg !== null && (
+                      <Navigation
+                        className="w-3.5 h-3.5 text-amber-300 transition-transform duration-100"
+                        style={{ transform: `rotate(${roverTelemetry.rareSampleBearingDeg}deg)` }}
+                      />
+                    )}
+                  </div>
+                )}
+                {allSamplesDone && (
+                  <button
+                    type="button"
+                    onClick={onReturnLevels}
+                    className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-[11px] shrink-0 cursor-pointer"
+                  >
+                    Next Planet
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-5 gap-2">
@@ -845,10 +979,10 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({
               </div>
               <div className="bg-slate-900/75 border border-slate-800 rounded-md px-2.5 py-1.5">
                 <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                  Science Beacons
+                  Samples + Relic
                 </div>
                 <div className="font-mono-tabular text-sm font-semibold text-emerald-300">
-                  {roverTelemetry.samplesCollected.length} / {dest.samples.length}
+                  {roverTelemetry.samplesCollected.length} / {dest.samples.length + 1}
                 </div>
               </div>
             </div>

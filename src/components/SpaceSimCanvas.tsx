@@ -5,7 +5,7 @@ import { RocketAudioEngine } from '../engine/audio';
 import { SpaceportEnvironment } from '../engine/environment';
 import { FlightInput, FlightPhysicsEngine, WORLD_UNITS_PER_KM } from '../engine/flightPhysics';
 import { LanderVehicle, RoverVehicle } from '../engine/landerAndRover';
-import { PlanetarySurfaceScene, terrainHeightAt, terrainNormalAt } from '../engine/planetaryTerrain';
+import { PlanetarySurfaceScene, SAFE_LANDING_RADIUS, terrainHeightAt, terrainNormalAt } from '../engine/planetaryTerrain';
 import { ExhaustSmokeSystem } from '../engine/plumeAndSmoke';
 import { NozzleInfo, RocketVehicle } from '../engine/rocketModel';
 import { createProceduralTextures } from '../engine/textures';
@@ -17,8 +17,10 @@ import {
   GameScreen,
   GameSettings,
   LandingTelemetry,
+  MissionFailureState,
   RolloutTelemetry,
   RoverTelemetry,
+  ScienceSample,
   SpacecraftConfig,
   TransitTelemetry,
 } from '../types/mission';
@@ -55,6 +57,9 @@ interface SpaceSimCanvasProps {
   onOrbitAchieved: () => void;
   onTransitComplete: () => void;
   onTouchdownComplete: () => void;
+  onCameraModeChange?: (mode: CameraMode) => void;
+  onSampleCollected: (sample: ScienceSample) => void;
+  onMissionFailed: (err: MissionFailureState) => void;
   collectTriggerRef: React.MutableRefObject<(() => void) | null>;
 }
 
@@ -72,6 +77,7 @@ const _smoothCamPos = new THREE.Vector3(22, 13, 32);
 const _smoothLookAt = new THREE.Vector3(0, 12, 0);
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _quatA = new THREE.Quaternion();
+const _roverTargetQuat = new THREE.Quaternion();
 const _upVec = new THREE.Vector3(0, 1, 0);
 
 export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
@@ -94,6 +100,9 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
   onOrbitAchieved,
   onTransitComplete,
   onTouchdownComplete,
+  onCameraModeChange,
+  onSampleCollected,
+  onMissionFailed,
   collectTriggerRef,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -121,6 +130,9 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
     onOrbitAchieved,
     onTransitComplete,
     onTouchdownComplete,
+    onCameraModeChange,
+    onSampleCollected,
+    onMissionFailed,
   });
   callbacksRef.current = {
     onFlightTelemetry,
@@ -132,6 +144,9 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
     onOrbitAchieved,
     onTransitComplete,
     onTouchdownComplete,
+    onCameraModeChange,
+    onSampleCollected,
+    onMissionFailed,
   };
 
   const orbitCtrlRef = useRef({
@@ -154,11 +169,12 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
     transitProgress: 0,
     transitFinishedEmitted: false,
     // Landing state
-    landerPos: new THREE.Vector3(0, 115, 0),
-    landerVel: new THREE.Vector3(0, -10, 0),
+    landerPos: new THREE.Vector3(9, 118, -7),
+    landerVel: new THREE.Vector3(0, -10.5, 0),
     landerFuel: 1.0,
     landerTouchdown: false,
     landerTouchdownEmitted: false,
+    landerDestroyed: false,
     rampOpen: 0,
     // Rover state
     roverDeployed: false,
@@ -170,6 +186,7 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
     roverSteerSmooth: 0,
     roverDistance: 0,
     roverBattery: 100,
+    roverDestroyed: false,
     collectedSamples: new Set<string>(),
     lastScanMsg: null as string | null,
     orbitAchievedEmitted: false,
@@ -236,24 +253,26 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       st.transitProgress = 0;
       st.transitFinishedEmitted = false;
       smokeRef.current?.reset();
-      _smoothCamPos.set(6.5, 3203.8, 12.5);
-      _smoothLookAt.set(0, 3200, -60);
+      _smoothCamPos.set(18, 3210, 26);
+      _smoothLookAt.set(0, 3200, -18);
     } else if (screen === 'landing') {
-      st.landerPos.set(0, 110, 0);
+      st.landerPos.set(9, 118, -7);
       st.landerVel.set(0, -10.5, 0);
       st.landerFuel = 1.0;
       st.landerTouchdown = false;
       st.landerTouchdownEmitted = false;
+      st.landerDestroyed = false;
       st.rampOpen = 0;
       landingThrottleRef.current = 0.35;
       smokeRef.current?.reset();
-      _smoothCamPos.set(16, 118, 26);
-      _smoothLookAt.set(0, 110, 0);
+      _smoothCamPos.set(22, 126, 15);
+      _smoothLookAt.set(9, 118, -7);
     } else if (screen === 'rover') {
       const ly = terrainHeightAt(0, 0, destRef.current);
       const ry = terrainHeightAt(0, 5.6, destRef.current);
       st.landerPos.set(0, ly, 0);
       st.landerTouchdown = true;
+      st.landerDestroyed = false;
       st.rampOpen = 0;
       st.roverDeployed = false;
       st.roverDeployT = 0;
@@ -263,6 +282,7 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       st.roverHeading = 0;
       st.roverDistance = 0;
       st.roverBattery = 100;
+      st.roverDestroyed = false;
       st.collectedSamples.clear();
       st.lastScanMsg = null;
       smokeRef.current?.reset();
@@ -317,7 +337,7 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
     const camera = new THREE.PerspectiveCamera(
       54,
       (container.clientWidth || window.innerWidth) / (container.clientHeight || window.innerHeight),
-      0.3,
+      0.6,
       24000
     );
     camera.position.copy(_smoothCamPos);
@@ -406,17 +426,22 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       }
     };
 
-    // Rover science sample collector callback
+    // Rover science sample & rare sample collector callback
     collectTriggerRef.current = () => {
       const st = phaseStateRef.current;
+      if (st.roverDestroyed) return;
       const dest = DESTINATIONS[destRef.current];
-      for (const sample of dest.samples) {
+      const allTargets = [...dest.samples, dest.rareSample];
+      for (const sample of allTargets) {
         if (st.collectedSamples.has(sample.id)) continue;
         const dist = Math.hypot(st.roverPos.x - sample.x, st.roverPos.z - sample.z);
-        if (dist < 10.5) {
+        if (dist < 11.0) {
           st.collectedSamples.add(sample.id);
-          st.lastScanMsg = `${sample.title}: ${sample.reading} (+${sample.points} pts)`;
+          st.lastScanMsg = sample.isRare
+            ? `RARE DISCOVERY! ${sample.title} (+$${sample.creditReward} Credits)`
+            : `${sample.title}: ${sample.reading} (+$${sample.creditReward})`;
           audio.playOrbitAchieved();
+          callbacksRef.current.onSampleCollected(sample);
           break;
         }
       }
@@ -426,12 +451,27 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       renderer.compile(scene, camera);
     }
 
-    // Pointer Orbit Interaction
+    // Pointer Orbit Interaction (seamlessly enables Free Camera during Flight!)
     const canvasEl = renderer.domElement;
+    const syncOrbitFromCurrentCamera = () => {
+      const rel = _vB.copy(camera.position).sub(_smoothLookAt);
+      const dist = THREE.MathUtils.clamp(rel.length(), 14, 105);
+      const pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(rel.y / dist, -0.92, 0.92)), -0.95, 1.25);
+      const yaw = Math.atan2(rel.x, rel.z);
+      const orb = orbitCtrlRef.current;
+      orb.yaw = orb.targetYaw = yaw;
+      orb.pitch = orb.targetPitch = pitch;
+      orb.distance = orb.targetDistance = dist;
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       orbitCtrlRef.current.dragging = true;
       orbitCtrlRef.current.lastX = e.clientX;
       orbitCtrlRef.current.lastY = e.clientY;
+      if (screenRef.current === 'flight' && cameraModeRef.current !== 'free-orbit') {
+        syncOrbitFromCurrentCamera();
+        callbacksRef.current.onCameraModeChange?.('free-orbit');
+      }
     };
     const onPointerMove = (e: PointerEvent) => {
       if (!orbitCtrlRef.current.dragging) return;
@@ -450,10 +490,14 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       orbitCtrlRef.current.dragging = false;
     };
     const onWheel = (e: WheelEvent) => {
+      if (screenRef.current === 'flight' && cameraModeRef.current !== 'free-orbit') {
+        syncOrbitFromCurrentCamera();
+        callbacksRef.current.onCameraModeChange?.('free-orbit');
+      }
       orbitCtrlRef.current.targetDistance = THREE.MathUtils.clamp(
         orbitCtrlRef.current.targetDistance + e.deltaY * 0.03,
         12,
-        105
+        115
       );
     };
 
@@ -519,6 +563,7 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       lander.root.visible = false;
       rover.root.visible = false;
       planetScene.group.visible = false;
+      planetScene.setLandingZonesVisible(curScreen === 'landing');
       env.crawlerGroup.visible = false;
       env.targetPlanetGroup.visible = false;
 
@@ -603,32 +648,35 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
         rocket.root.visible = true;
         env.crawlerGroup.visible = true;
 
-        // Smooth 7.5-second realistic rollout from X=-115 to X=0
+        // Smooth 7.2-second realistic rollout from X=-115 to X=0, then crawler retracts cleanly
         st.rolloutProgress = Math.min(1, st.rolloutProgress + dt / 7.2);
+        const travelFrac = Math.min(1, st.rolloutProgress / 0.88);
         const ease =
-          st.rolloutProgress < 0.5
-            ? 2 * st.rolloutProgress * st.rolloutProgress
-            : 1 - Math.pow(-2 * st.rolloutProgress + 2, 2) / 2;
+          travelFrac < 0.5
+            ? 2 * travelFrac * travelFrac
+            : 1 - Math.pow(-2 * travelFrac + 2, 2) / 2;
 
         const doorOpen = THREE.MathUtils.smoothstep(st.rolloutProgress, 0, 0.22);
         env.setWarehouseDoorsOpen(doorOpen);
 
-        const crawlerX = THREE.MathUtils.lerp(-115, 0, ease);
-        // Settle rocket onto pad cleanly in final 10%
-        const settleY = THREE.MathUtils.lerp(2.55, 0.0, THREE.MathUtils.smoothstep(st.rolloutProgress, 0.9, 1.0));
+        const rocketX = THREE.MathUtils.lerp(-115, 0, ease);
+        const retractT = THREE.MathUtils.smoothstep(st.rolloutProgress, 0.88, 1.0);
+        const settleY = THREE.MathUtils.lerp(2.55, 0.0, retractT);
+        const crawlerX = rocketX - retractT * 15; // Crawler pulls back cleanly as rocket locks onto pad
+
         env.crawlerGroup.position.set(crawlerX, 0, 0);
-        rocket.root.position.set(crawlerX, settleY, 0);
+        rocket.root.position.set(rocketX, settleY, 0);
         rocket.root.quaternion.identity();
         rocket.updateVisuals(dt, elapsed, 0, 0, false, true, 1, 0, 0, 0);
 
         env.updateEarthAscent(camera.position, rocket.root.position, 0, false, 0, scene);
-        sunLight.position.set(crawlerX + 120, 180, 120);
-        sunLight.target.position.set(crawlerX, 12, 0);
+        sunLight.position.set(rocketX + 120, 180, 120);
+        sunLight.target.position.set(rocketX, 12, 0);
         sunLight.target.updateMatrixWorld();
 
         // Sweeping tracking camera alongside crawlerway toward the pad
-        _desiredCamPos.set(crawlerX + 26, 11 + ease * 5, 36 - ease * 6);
-        _desiredLookAt.set(crawlerX + 4, 12, 0);
+        _desiredCamPos.set(rocketX + 26, 11 + ease * 5, 36 - ease * 6);
+        _desiredLookAt.set(rocketX + 4, 12, 0);
 
         // Subtle diesel crawler rumble via audio
         audio.updateThrust(0.22 * (1 - st.rolloutProgress * 0.4), 1, true, 0);
@@ -841,10 +889,10 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
         sunLight.target.position.set(0, 3200, 0);
         sunLight.target.updateMatrixWorld();
 
-        // Dramatic behind-the-lander cutscene camera
-        const sway = Math.sin(elapsed * 0.7) * 2.5;
-        _desiredCamPos.set(6.5 + sway, 3203.8, 12.5);
-        _desiredLookAt.set(0, 3200, -60);
+        // Wide cutscene camera so the full Lander, solar wings, dish, plume & target world are clearly visible
+        const sway = Math.sin(elapsed * 0.65) * 3.5;
+        _desiredCamPos.set(18 + sway, 3210, 26);
+        _desiredLookAt.set(0, 3200, -18);
         camLambda = 4.5;
 
         if (tp >= 1 && !st.transitFinishedEmitted) {
@@ -858,14 +906,18 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       // =========================================================
       else if (curScreen === 'landing') {
         planetScene.group.visible = true;
-        lander.root.visible = true;
+        lander.root.visible = !st.landerDestroyed;
         planetScene.updateBeacons(elapsed, st.collectedSamples);
 
         const dest = DESTINATIONS[curDest];
         const groundY = terrainHeightAt(st.landerPos.x, st.landerPos.z, curDest);
         const alt = Math.max(0, st.landerPos.y - groundY);
 
-        if (!st.landerTouchdown) {
+        if (st.landerDestroyed) {
+          // Keep integrating explosion smoke/debris cloud cleanly
+          smokeSystem.update(dt, [], _vB.set(0, 0, 0), false, 0, 0.45, 0);
+          audio.updateThrust(0, 0, false, 1);
+        } else if (!st.landerTouchdown) {
           // Assisted Auto-Land or manual throttle retro-braking
           let burnThrottle = landingThrottleRef.current;
           if (inputRef.current.landingBurn) {
@@ -889,50 +941,79 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
           st.landerVel.y += (retroAccel - dest.gravityMps2) * dt;
 
           // Horizontal hover RCS translation
-          const hAccel = 8.5;
+          const hAccel = 9.5;
           if (inputRef.current.landingLeft) st.landerVel.x -= hAccel * dt;
           if (inputRef.current.landingRight) st.landerVel.x += hAccel * dt;
           if (inputRef.current.landingFwd) st.landerVel.z -= hAccel * dt;
           if (inputRef.current.landingBack) st.landerVel.z += hAccel * dt;
 
-          if (settingsRef.current.autoLandAssist) {
-            // Gently center over flat pad (0,0) & damp drift
-            st.landerVel.x += (-st.landerPos.x * 0.15 - st.landerVel.x * 0.9) * dt;
-            st.landerVel.z += (-st.landerPos.z * 0.15 - st.landerVel.z * 0.9) * dt;
+          const hasManualHInput =
+            inputRef.current.landingLeft ||
+            inputRef.current.landingRight ||
+            inputRef.current.landingFwd ||
+            inputRef.current.landingBack;
+          if (settingsRef.current.autoLandAssist && !hasManualHInput) {
+            // Gently center over flat safe pad (0,0) & damp drift unless player steers away
+            st.landerVel.x += (-st.landerPos.x * 0.18 - st.landerVel.x * 0.9) * dt;
+            st.landerVel.z += (-st.landerPos.z * 0.18 - st.landerVel.z * 0.9) * dt;
           }
 
           st.landerPos.addScaledVector(st.landerVel, dt);
 
           const newGroundY = terrainHeightAt(st.landerPos.x, st.landerPos.z, curDest);
           if (st.landerPos.y <= newGroundY) {
+            const impactVy = Math.abs(st.landerVel.y);
+            const distFromPad = Math.hypot(st.landerPos.x, st.landerPos.z);
+            const inSafeZone = distFromPad <= SAFE_LANDING_RADIUS;
+            const safeImpact = impactVy <= 10.5;
+
             st.landerPos.y = newGroundY;
             st.landerTouchdown = true;
             st.landerVel.set(0, 0, 0);
             landingThrottleRef.current = 0;
-            audio.playStageSeparation();
-            if (!st.landerTouchdownEmitted) {
-              st.landerTouchdownEmitted = true;
-              callbacksRef.current.onTouchdownComplete();
+
+            if (!inSafeZone || !safeImpact) {
+              // Touched down in Hazard / Destruction Zone or crashed too fast!
+              st.landerDestroyed = true;
+              lander.root.visible = false;
+              smokeSystem.spawnExplosion(st.landerPos);
+              audio.playExplosion();
+              audio.updateThrust(0, 0, false, 1);
+              callbacksRef.current.onMissionFailed({
+                phase: 'landing',
+                title: !inSafeZone ? 'Lander Destroyed Outside Safe Zone' : 'Hard Impact Crash',
+                reason: !inSafeZone
+                  ? `Touched down ${Math.round(distFromPad)} m from pad center (Safe zone radius: ${SAFE_LANDING_RADIUS} m). Hazardous terrain destroyed the lander.`
+                  : `Descent impact velocity was ${impactVy.toFixed(1)} m/s (Max safe touchdown: 10.5 m/s).`,
+              });
+            } else {
+              audio.playStageSeparation();
+              if (!st.landerTouchdownEmitted) {
+                st.landerTouchdownEmitted = true;
+                callbacksRef.current.onTouchdownComplete();
+              }
             }
           }
 
-          lander.root.position.copy(st.landerPos);
-          lander.root.rotation.set(
-            THREE.MathUtils.clamp(st.landerVel.z * 0.02, -0.25, 0.25),
-            0,
-            THREE.MathUtils.clamp(-st.landerVel.x * 0.02, -0.25, 0.25)
-          );
-          lander.updateThrust(effectiveThrottle, elapsed, false, 0);
+          if (!st.landerDestroyed) {
+            lander.root.position.copy(st.landerPos);
+            lander.root.rotation.set(
+              THREE.MathUtils.clamp(st.landerVel.z * 0.02, -0.25, 0.25),
+              0,
+              THREE.MathUtils.clamp(-st.landerVel.x * 0.02, -0.25, 0.25)
+            );
+            lander.updateThrust(effectiveThrottle, elapsed, false, 0);
 
-          // Kick up planetary dust beneath retro-plume when below 35 m!
-          if (effectiveThrottle > 0.05) {
-            landerNozzleList[0].worldPos.copy(st.landerPos).add(_vA.set(0, 0.4, 0));
-            landerNozzleList[0].worldDir.set(0, -1, 0);
-            landerNozzleList[0].isVacuum = destRef.current === 'moon' || destRef.current === 'mercury';
-            const dustDensity = alt < 35 ? 0.65 : 0.15;
-            smokeSystem.update(dt, landerNozzleList, st.landerVel, true, effectiveThrottle, dustDensity, alt);
+            // Kick up planetary dust beneath retro-plume when below 35 m!
+            if (effectiveThrottle > 0.05) {
+              landerNozzleList[0].worldPos.copy(st.landerPos).add(_vA.set(0, 0.4, 0));
+              landerNozzleList[0].worldDir.set(0, -1, 0);
+              landerNozzleList[0].isVacuum = destRef.current === 'moon' || destRef.current === 'mercury';
+              const dustDensity = alt < 35 ? 0.65 : 0.15;
+              smokeSystem.update(dt, landerNozzleList, st.landerVel, true, effectiveThrottle, dustDensity, alt);
+            }
+            audio.updateThrust(effectiveThrottle, 0.45, effectiveThrottle > 0.05, 1);
           }
-          audio.updateThrust(effectiveThrottle, 0.45, effectiveThrottle > 0.05, 1);
         } else {
           lander.root.position.copy(st.landerPos);
           lander.root.rotation.set(0, 0, 0);
@@ -946,8 +1027,18 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
         sunLight.target.position.copy(st.landerPos);
         sunLight.target.updateMatrixWorld();
 
-        // Behind & angled down so you see Lander legs, retro-plume, and NASA terrain below
-        _desiredCamPos.set(st.landerPos.x + 14, st.landerPos.y + 7.5, st.landerPos.z + 18);
+        // Angled camera showing lander, landing rings, and expansive NASA terrain below
+        if (orb.dragging) {
+          const cosP = Math.cos(orb.pitch);
+          const dist = THREE.MathUtils.clamp(orb.distance * 0.65, 14, 48);
+          _desiredCamPos.set(
+            st.landerPos.x + dist * cosP * Math.sin(orb.yaw),
+            st.landerPos.y + 4 + dist * Math.sin(orb.pitch),
+            st.landerPos.z + dist * cosP * Math.cos(orb.yaw)
+          );
+        } else {
+          _desiredCamPos.set(st.landerPos.x + 15, st.landerPos.y + 9, st.landerPos.z + 21);
+        }
         _desiredLookAt.set(st.landerPos.x, Math.max(groundY, st.landerPos.y - 3), st.landerPos.z);
         camLambda = 6.0;
       }
@@ -958,7 +1049,7 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
       else if (curScreen === 'rover') {
         planetScene.group.visible = true;
         lander.root.visible = true;
-        rover.root.visible = true;
+        rover.root.visible = !st.roverDestroyed;
         planetScene.updateBeacons(elapsed, st.collectedSamples);
 
         const dest = DESTINATIONS[curDest];
@@ -966,8 +1057,11 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
         lander.root.position.copy(st.landerPos);
         lander.updateThrust(0, elapsed, true, st.rampOpen);
 
-        // Smooth ramp roll-out deployment during first 1.8s
-        if (!st.roverDeployed) {
+        if (st.roverDestroyed) {
+          // Keep integrating explosion fire/smoke after boulder crash
+          smokeSystem.update(dt, [], _vB.set(0, 0, 0), false, 0, 0.55, 2);
+        } else if (!st.roverDeployed) {
+          // Smooth ramp roll-out deployment during first 1.8s
           st.roverDeployT = Math.min(1, st.roverDeployT + dt / 1.8);
           const dz = THREE.MathUtils.lerp(1.5, 6.2, st.roverDeployT);
           const dy = terrainHeightAt(0, dz, curDest) + THREE.MathUtils.lerp(1.2, 0, st.roverDeployT);
@@ -989,21 +1083,19 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
             st.roverSpeed += cmdThrottle * accelRate * dt;
             st.roverSpeed = THREE.MathUtils.clamp(st.roverSpeed, -maxSpeed * 0.55, maxSpeed);
           } else {
-            // Natural rolling friction
             st.roverSpeed *= Math.max(0, 1 - dt * 2.8);
           }
 
           st.roverSteerSmooth = THREE.MathUtils.damp(st.roverSteerSmooth, cmdSteer * 0.65, 10, dt);
 
-          // Turn cleanly (even at low speed so steering feels snappy!)
           const turnAuthority = Math.abs(st.roverSpeed) > 0.3 ? Math.sign(st.roverSpeed) : 1;
           st.roverHeading -= cmdSteer * 1.75 * turnAuthority * dt;
 
           const moveDx = Math.sin(st.roverHeading) * st.roverSpeed * dt;
           const moveDz = Math.cos(st.roverHeading) * st.roverSpeed * dt;
 
-          st.roverPos.x = THREE.MathUtils.clamp(st.roverPos.x + moveDx, -185, 185);
-          st.roverPos.z = THREE.MathUtils.clamp(st.roverPos.z + moveDz, -185, 185);
+          st.roverPos.x = THREE.MathUtils.clamp(st.roverPos.x + moveDx, -192, 192);
+          st.roverPos.z = THREE.MathUtils.clamp(st.roverPos.z + moveDz, -192, 192);
           st.roverDistance += Math.hypot(moveDx, moveDz);
           st.roverBattery = Math.max(15, st.roverBattery - Math.abs(st.roverSpeed) * 0.012 * dt);
 
@@ -1020,17 +1112,37 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
             st.roverVelY = 0;
           }
 
-          // Align Rover orientation smoothly to planetary terrain slope normal
+          // Smooth slerp alignment to planetary terrain slope normal (zero jitter!)
           terrainNormalAt(st.roverPos.x, st.roverPos.z, curDest, _vNormal);
           _quatA.setFromUnitVectors(_upVec, _vNormal);
           _euler.set(0, st.roverHeading, 0);
-          rover.root.quaternion.setFromEuler(_euler).premultiply(_quatA);
+          _roverTargetQuat.setFromEuler(_euler).premultiply(_quatA);
+          rover.root.quaternion.slerp(_roverTargetQuat, 1 - Math.exp(-12 * dt));
           rover.root.position.copy(st.roverPos);
 
           rover.updateMotion(dt, st.roverSpeed, st.roverSteerSmooth, elapsed);
 
+          // Real solid rock collision check -> crash explosion + Mission Unsuccessful!
+          for (const rock of planetScene.rockColliders) {
+            const distToRock = Math.hypot(st.roverPos.x - rock.x, st.roverPos.z - rock.z);
+            if (distToRock < rock.radius + 0.92 && st.roverPos.y - groundY < 1.8) {
+              const impactSpeed = Math.abs(st.roverSpeed);
+              st.roverDestroyed = true;
+              st.roverSpeed = 0;
+              rover.root.visible = false;
+              smokeSystem.spawnExplosion(st.roverPos);
+              audio.playExplosion();
+              callbacksRef.current.onMissionFailed({
+                phase: 'rover',
+                title: 'Rover Destroyed in Rock Collision',
+                reason: `Your rover crashed into a solid ${dest.name} boulder at ${impactSpeed.toFixed(1)} m/s and suffered critical chassis failure.`,
+              });
+              break;
+            }
+          }
+
           // Kick up wheel dust behind rover when driving quickly on ground
-          if (Math.abs(st.roverSpeed) > 2.5 && st.roverPos.y <= groundY + 0.15) {
+          if (!st.roverDestroyed && Math.abs(st.roverSpeed) > 2.5 && st.roverPos.y <= groundY + 0.15) {
             const backX = -Math.sin(st.roverHeading);
             const backZ = -Math.cos(st.roverHeading);
             landerNozzleList[0].worldPos.set(
@@ -1140,30 +1252,51 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
           const groundY = terrainHeightAt(st.landerPos.x, st.landerPos.z, curDest);
           const alt = Math.max(0, st.landerPos.y - groundY);
           const hSpeed = Math.hypot(st.landerVel.x, st.landerVel.z);
+          const distFromSafeCenter = Math.hypot(st.landerPos.x, st.landerPos.z);
+          const inSafeZone = distFromSafeCenter <= SAFE_LANDING_RADIUS;
           callbacksRef.current.onLandingTelemetry({
             altitudeMeters: alt,
             verticalSpeed: st.landerVel.y,
             horizontalSpeed: hSpeed,
+            distFromSafeCenter,
+            inSafeZone,
+            safeRadiusMeters: SAFE_LANDING_RADIUS,
             fuelPct: Math.round(st.landerFuel * 100),
             throttle: landingThrottleRef.current,
             touchdown: st.landerTouchdown,
-            safeLanding: true,
-            guidanceText: st.landerTouchdown
-              ? 'Touchdown confirmed · Preparing rover deployment ramp'
-              : settingsRef.current.autoLandAssist
-                ? 'Auto-Descent active · Hold [W/Space] for extra thrust or [A/D] to translate'
-                : 'Manual Descent · Control retro-thrust [W/Space] to touch down smoothly',
+            safeLanding: !st.landerDestroyed,
+            guidanceText: st.landerDestroyed
+              ? 'CRITICAL: Lander destroyed! Retry descent.'
+              : st.landerTouchdown
+                ? 'Touchdown confirmed · Preparing rover deployment ramp'
+                : inSafeZone
+                  ? `Inside Safe Pad Zone (${Math.round(distFromSafeCenter)}m/${SAFE_LANDING_RADIUS}m) · Keep descent under 10.5 m/s`
+                  : `OUTSIDE SAFE ZONE (${Math.round(distFromSafeCenter)}m) · Steer W/A/S/D toward green ring!`,
           });
         } else if (curScreen === 'rover') {
           const dest = DESTINATIONS[curDest];
+          const allTargets = [...dest.samples, dest.rareSample];
           let nearby = null;
-          for (const sample of dest.samples) {
-            if (st.collectedSamples.has(sample.id)) continue;
-            if (Math.hypot(st.roverPos.x - sample.x, st.roverPos.z - sample.z) < 10.5) {
-              nearby = sample;
-              break;
+          if (!st.roverDestroyed) {
+            for (const sample of allTargets) {
+              if (st.collectedSamples.has(sample.id)) continue;
+              if (Math.hypot(st.roverPos.x - sample.x, st.roverPos.z - sample.z) < 11.0) {
+                nearby = sample;
+                break;
+              }
             }
           }
+          const rare = dest.rareSample;
+          const rareFound = st.collectedSamples.has(rare.id);
+          const dxRare = rare.x - st.roverPos.x;
+          const dzRare = rare.z - st.roverPos.z;
+          const rareDist = Math.round(Math.hypot(dxRare, dzRare));
+          const worldBearing = Math.atan2(dxRare, dzRare);
+          let relBearing = worldBearing - st.roverHeading;
+          while (relBearing > Math.PI) relBearing -= Math.PI * 2;
+          while (relBearing < -Math.PI) relBearing += Math.PI * 2;
+          const rareBearingDeg = Math.round((relBearing * 180) / Math.PI);
+
           terrainNormalAt(st.roverPos.x, st.roverPos.z, curDest, _vNormal);
           const slopeDeg = Math.round((Math.acos(THREE.MathUtils.clamp(_vNormal.y, -1, 1)) * 180) / Math.PI);
           callbacksRef.current.onRoverTelemetry({
@@ -1175,6 +1308,9 @@ export const SpaceSimCanvas: React.FC<SpaceSimCanvasProps> = ({
             nearbySample: nearby,
             lastScanMessage: st.lastScanMsg,
             slopeDeg,
+            rareSampleDistanceM: rareFound ? null : rareDist,
+            rareSampleBearingDeg: rareFound ? null : rareBearingDeg,
+            rareFound,
           });
         }
       }
